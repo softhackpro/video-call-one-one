@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebRTC 1:1 Test</title>
+  <style>
+    video {
+      width: 45%;
+      border: 2px solid black;
+      margin: 5px;
+    }
+  </style>
+</head>
+<body>
+
+<h2>WebRTC 1:1 Test</h2>
+
+<input id="roomId" placeholder="Room ID" />
+<button onclick="joinRoom()">Join</button>
+<button onclick="startCall()">Start Call</button>
+
+<br><br>
+
+<video id="localVideo" autoplay muted playsinline></video>
+<video id="remoteVideo" autoplay playsinline></video>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+<script>
+const socket = io("http://localhost:5000"); // 🔥 change if needed
+
+let localStream;
+let peer;
+let roomId;
+let otherUser;
+let audioCtx;
+let remoteGainNode;
+
+const REMOTE_VOLUME_BOOST = 2.5; // >1.0 amplifies beyond the video element's 100% cap
+
+const config = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    {
+      urls: "turn:localhost:3478",
+      username: "testuser",
+      credential: "testpassword"
+    }
+  ]
+};
+
+// 🎥 Get media
+async function initMedia() {
+  localStream = await navigator.mediaDevices.getUserMedia({
+    video: true,
+    audio: {
+      autoGainControl: true,
+      echoCancellation: true,
+      noiseSuppression: true
+    }
+  });
+
+  document.getElementById("localVideo").srcObject = localStream;
+}
+
+// 🔗 Create Peer
+function createPeer() {
+  peer = new RTCPeerConnection(config);
+
+  // send ICE
+  peer.onicecandidate = (event) => {
+    if (event.candidate) {
+      socket.emit("ice-candidate", {
+        to: otherUser,
+        candidate: event.candidate
+      });
+    }
+  };
+
+  // receive remote stream
+  peer.ontrack = (event) => {
+    const remoteVideo = document.getElementById("remoteVideo");
+    remoteVideo.srcObject = event.streams[0];
+    // audio is played via the boosted Web Audio graph below, not the <video> element
+    remoteVideo.muted = true;
+    attachRemoteAudioBoost(event.streams[0]);
+  };
+
+  // add tracks
+  localStream.getTracks().forEach(track => {
+    peer.addTrack(track, localStream);
+  });
+}
+
+// 🔊 Boost remote audio beyond the browser's 100% volume cap
+function attachRemoteAudioBoost(remoteStream) {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+
+  const source = audioCtx.createMediaStreamSource(remoteStream);
+  remoteGainNode = audioCtx.createGain();
+  remoteGainNode.gain.value = REMOTE_VOLUME_BOOST;
+
+  source.connect(remoteGainNode);
+  remoteGainNode.connect(audioCtx.destination);
+}
+
+// 📥 Join room
+async function joinRoom() {
+  roomId = document.getElementById("roomId").value;
+
+  await initMedia();
+
+  socket.emit("join", { roomId });
+}
+
+// 📡 Existing users
+socket.on("existing-users", (users) => {
+  if (users.length > 0) {
+    otherUser = users[0];
+  }
+});
+
+// 👤 New user joined
+socket.on("user-joined", ({ socketId }) => {
+  otherUser = socketId;
+});
+
+// 📞 Start call
+async function startCall() {
+  if (!otherUser) {
+    alert("No user in room yet");
+    return;
+  }
+
+  createPeer();
+
+  const offer = await peer.createOffer();
+  await peer.setLocalDescription(offer);
+
+  socket.emit("offer", {
+    to: otherUser,
+    offer
+  });
+}
+
+// 📥 Receive offer
+socket.on("offer", async ({ from, offer }) => {
+  otherUser = from;
+
+  createPeer();
+
+  await peer.setRemoteDescription(offer);
+
+  const answer = await peer.createAnswer();
+  await peer.setLocalDescription(answer);
+
+  socket.emit("answer", {
+    to: from,
+    answer
+  });
+});
+
+// 📥 Receive answer
+socket.on("answer", async ({ answer }) => {
+  await peer.setRemoteDescription(answer);
+});
+
+// ❄️ ICE
+socket.on("ice-candidate", async ({ candidate }) => {
+  try {
+    await peer.addIceCandidate(candidate);
+  } catch (e) {
+    console.error("ICE error", e);
+  }
+});
+
+// 👋 User left
+socket.on("user-left", () => {
+  alert("User disconnected");
+  if (peer) peer.close();
+});
+</script>
+
+</body>
+</html>

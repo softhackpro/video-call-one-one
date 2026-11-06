@@ -1,0 +1,36 @@
+{
+  "name": "@coaching-webrtc/react",
+  "version": "0.1.0",
+  "description": "React JS + Next.js video calling SDK (headless hook + prebuilt CallScreen) with boosted remote audio.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch"
+  },
+  "dependencies": {
+    "@coaching-webrtc/core": "*"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "tsdown": "^0.9.0",
+    "typescript": "^5.6.0"
+  }
+}
